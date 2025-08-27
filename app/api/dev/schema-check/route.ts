@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { DegreeRequirementsZ } from "../../../lib/types.zod"
+import { DegreeRequirementsZ } from "@/lib/schemas"
 
 // Minimal sample that exercises: one-of-sets tracks + coreqs on lab/lecture pairs.
 const SAMPLE = {
