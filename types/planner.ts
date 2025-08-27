@@ -9,6 +9,13 @@ export interface PlannerFormData {
   includeSummers: boolean
 }
 
+export interface PlanningConstraints {
+  minCredits: number
+  maxCredits: number
+  targetGradTerm: string
+  includeSummers: boolean
+}
+
 export interface DegreeRequirements {
   institution: string
   program: string

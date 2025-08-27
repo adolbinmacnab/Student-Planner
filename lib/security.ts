@@ -151,10 +151,12 @@ export class EnhancedRateLimiter {
 
 export const enhancedRateLimiter = new EnhancedRateLimiter()
 
-// Clean up expired entries every 5 minutes
-setInterval(
-  () => {
-    enhancedRateLimiter.cleanup()
-  },
-  5 * 60 * 1000,
-)
+if (typeof window === "undefined" && process.env.NODE_ENV === "production") {
+  // Clean up expired entries every 5 minutes
+  setInterval(
+    () => {
+      enhancedRateLimiter.cleanup()
+    },
+    5 * 60 * 1000,
+  )
+}

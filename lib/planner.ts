@@ -1,11 +1,11 @@
-import type { DegreeRequirements, Course, Prerequisite, PlannerOutput, Term } from "@/types/planner"
-
-export interface PlanningConstraints {
-  minCredits: number
-  maxCredits: number
-  targetGradTerm: string
-  includeSummers: boolean
-}
+import type {
+  DegreeRequirements,
+  Course,
+  Prerequisite,
+  PlannerOutput,
+  Term,
+  PlanningConstraints,
+} from "@/types/planner"
 
 interface CourseWithPrereqs extends Course {
   prerequisites: string[]
@@ -83,8 +83,12 @@ function generateTermSequence(targetTerm: { season: string; year: number }, incl
   let year = startYear
   let seasonIndex = ["Spring", "Summer", "Fall"].indexOf(startSeason)
 
-  while (terms.length < 12) {
-    // Maximum 12 terms to prevent infinite loops
+  let safetyCounter = 0
+  const MAX_ITERATIONS = 20 // Maximum 20 iterations to prevent infinite loops
+
+  while (terms.length < 12 && safetyCounter < MAX_ITERATIONS) {
+    safetyCounter++
+
     const seasons = includeSummers ? ["Spring", "Summer", "Fall"] : ["Spring", "Fall"]
     const currentSeason = seasons[seasonIndex % seasons.length]
 
@@ -100,6 +104,10 @@ function generateTermSequence(targetTerm: { season: string; year: number }, incl
       if (seasonIndex % 3 === 0) year++
     } else {
       if (seasonIndex % 2 === 0) year++
+    }
+
+    if (year > targetTerm.year + 10) {
+      break
     }
   }
 
