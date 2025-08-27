@@ -18,8 +18,9 @@ import {
 import { signOut } from "next-auth/react"
 import Link from "next/link"
 import { PlannerForm } from "@/components/planner-form"
-import type { PlannerFormData, PlannerOutput, DegreeRequirements } from "@/types/planner"
+import type { PlannerFormData, PlannerOutput } from "@/types/planner"
 import { generatePDF } from "@/lib/pdf-generator"
+import { mapToPlanPayload } from "@/lib/planMapper"
 
 export default function PlannerPage() {
   const { data: session, status } = useSession()
@@ -92,26 +93,28 @@ export default function PlannerPage() {
         throw new Error(errorData.error || "Failed to parse requirements")
       }
 
-      const degreeRequirements: DegreeRequirements = await parseResponse.json()
-      console.log("Requirements parsed successfully:", degreeRequirements)
+      const parsedRequirements = await parseResponse.json()
+      console.log("Requirements parsed successfully:", parsedRequirements)
 
       // Then, generate the plan
       console.log("Generating academic plan...")
+
+      const payload = mapToPlanPayload(parsedRequirements)
+      payload.constraints = {
+        minCredits: data.minCredits,
+        maxCredits: data.maxCredits,
+        targetGradTerm: data.targetGradTerm,
+        includeSummers: data.includeSummers,
+      }
+
+      console.log("Plan API payload:", payload)
 
       const planResponse = await fetch("/api/plan", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          degreeRequirements,
-          constraints: {
-            minCredits: data.minCredits,
-            maxCredits: data.maxCredits,
-            targetGradTerm: data.targetGradTerm,
-            includeSummers: data.includeSummers,
-          },
-        }),
+        body: JSON.stringify(payload),
       })
 
       if (!planResponse.ok) {
@@ -236,7 +239,7 @@ export default function PlannerPage() {
           <Card className="mb-8 border-primary/20 bg-primary/5">
             <CardContent className="pt-6">
               <div className="flex items-center gap-2 text-primary">
-                <CheckCircle className="h-5 w-5" />
+                <CheckCircle className="h-5 w-5 text-primary" />
                 <p className="font-medium">Google Sheet Created Successfully!</p>
               </div>
               <div className="flex items-center gap-2 mt-2">
