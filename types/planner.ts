@@ -17,19 +17,25 @@ export interface PlanningConstraints {
 }
 
 export interface DegreeRequirements {
-  institution: string
-  program: string
-  totalCredits: number
+  program_name: string
+  institution?: string
+  catalog_year?: string
+  total_credits?: number
   courses: Course[]
-  prerequisites: Prerequisite[]
+  requirement_groups: RequirementGroup[]
+  prerequisites?: Prerequisite[]
 }
 
 export interface Course {
-  code: string
-  name: string
+  id: string
+  title?: string
   credits: number
+  prereqs?: (string | Logic)[]
+  coreqs?: string[]
+  offered?: ("Fall" | "Spring" | "Summer")[]
+  honors?: boolean
+  level?: number
   description?: string
-  offerings: string[] // e.g., ["Fall", "Spring", "Summer"]
 }
 
 export interface Prerequisite {
@@ -48,3 +54,11 @@ export interface Term {
   courses: Course[]
   totalCredits: number
 }
+
+export type Logic = { op: "AND" | "OR"; terms: (string | Logic)[] }
+
+export type RequirementGroup =
+  | { id: string; label: string; rule: "one-of-sets"; sets: { id: string; label?: string; courses: string[] }[] }
+  | { id: string; label: string; rule: "choose-n-credits"; credits: number; from: string[] }
+  | { id: string; label: string; rule: "choose-n-courses"; n: number; from: string[] }
+  | { id: string; label: string; rule: "all-of"; courses: string[] }

@@ -1,30 +1,71 @@
 import OpenAI from "openai"
 import { z } from "zod"
-import type { DegreeRequirements } from "@/types/planner"
+import type { DegreeRequirements, Logic, RequirementGroup } from "@/types/planner"
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 })
 
+const LogicSchema: z.ZodType<Logic> = z.lazy(() =>
+  z.object({
+    op: z.enum(["AND", "OR"]),
+    terms: z.array(z.union([z.string(), LogicSchema])),
+  }),
+)
+
+const RequirementGroupSchema: z.ZodType<RequirementGroup> = z.discriminatedUnion("rule", [
+  z.object({
+    id: z.string(),
+    label: z.string(),
+    rule: z.literal("one-of-sets"),
+    sets: z.array(
+      z.object({
+        id: z.string(),
+        label: z.string().optional(),
+        courses: z.array(z.string()),
+      }),
+    ),
+  }),
+  z.object({
+    id: z.string(),
+    label: z.string(),
+    rule: z.literal("choose-n-credits"),
+    credits: z.number(),
+    from: z.array(z.string()),
+  }),
+  z.object({
+    id: z.string(),
+    label: z.string(),
+    rule: z.literal("choose-n-courses"),
+    n: z.number(),
+    from: z.array(z.string()),
+  }),
+  z.object({
+    id: z.string(),
+    label: z.string(),
+    rule: z.literal("all-of"),
+    courses: z.array(z.string()),
+  }),
+])
+
 const DegreeRequirementsSchema = z.object({
-  institution: z.string(),
-  program: z.string(),
-  totalCredits: z.number(),
+  program_name: z.string(),
+  institution: z.string().optional(),
+  catalog_year: z.string().optional(),
+  total_credits: z.number().optional(),
   courses: z.array(
     z.object({
-      code: z.string(),
-      name: z.string(),
+      id: z.string(),
+      title: z.string().optional(),
       credits: z.number(),
-      description: z.string().optional(),
-      offerings: z.array(z.string()),
+      prereqs: z.array(z.union([z.string(), LogicSchema])).optional(),
+      coreqs: z.array(z.string()).optional(),
+      offered: z.array(z.enum(["Fall", "Spring", "Summer"])).optional(),
+      honors: z.boolean().optional(),
+      level: z.number().optional(),
     }),
   ),
-  prerequisites: z.array(
-    z.object({
-      course: z.string(),
-      requires: z.array(z.string()),
-    }),
-  ),
+  requirement_groups: z.array(RequirementGroupSchema),
 })
 
 export async function parseRequirementsWithAI(
@@ -42,39 +83,49 @@ Program: ${program}
 Catalog Content:
 ${content}
 
-Please extract and structure the degree requirements into the following JSON format:
+Extract STRICT JSON for DegreeRequirements per the schema. When the catalog says 'All courses from one of the following groups' or similar, emit a RequirementGroup with rule:'one-of-sets' and enumerate the sets (e.g., Chem Track A vs B vs Honors). Mark labs/lectures as corequisites. Record obvious offered terms if the text says 'offered Spring only'. Do NOT include courses from multiple alternative sets simultaneously.
 
+JSON Schema:
 {
+  "program_name": "${program}",
   "institution": "${institution}",
-  "program": "${program}",
-  "totalCredits": <total credits required for graduation>,
+  "catalog_year": "<year if mentioned>",
+  "total_credits": <total credits required>,
   "courses": [
     {
-      "code": "<course code like CS 101>",
-      "name": "<full course name>",
-      "credits": <number of credits>,
-      "description": "<brief description if available>",
-      "offerings": ["Fall", "Spring", "Summer"] // when the course is typically offered
+      "id": "<course code like CEM 141>",
+      "title": "<course title>",
+      "credits": <number>,
+      "prereqs": ["<course_id>" | {"op":"AND|OR", "terms":["course_id", ...]}],
+      "coreqs": ["<concurrent course ids like lab with lecture>"],
+      "offered": ["Fall", "Spring", "Summer"],
+      "honors": <true if honors version>,
+      "level": <100/200/300/400 if determinable>
     }
   ],
-  "prerequisites": [
+  "requirement_groups": [
     {
-      "course": "<course code>",
-      "requires": ["<prerequisite course codes>"]
+      "id": "<unique_id>",
+      "label": "<human readable name>",
+      "rule": "one-of-sets|choose-n-credits|choose-n-courses|all-of",
+      "sets": [{"id":"track_a", "label":"Chemistry Track A", "courses":["CEM 141", "CEM 142"]}], // for one-of-sets
+      "credits": <number>, // for choose-n-credits
+      "n": <number>, // for choose-n-courses  
+      "from": ["course_ids"], // for choose-n-credits/courses
+      "courses": ["course_ids"] // for all-of
     }
   ]
 }
 
-Instructions:
-1. Extract ALL required courses for the degree program
-2. Include core requirements, major requirements, and any electives with specific constraints
-3. Determine typical course offerings based on context (assume Fall/Spring if not specified)
-4. Extract prerequisite relationships where mentioned
-5. If total credits aren't explicitly stated, estimate based on typical degree requirements (usually 120-130 credits)
-6. Only include courses that are specifically required or part of required categories
-7. Use standard course code formats (e.g., "CS 101", "MATH 151")
+Key Instructions:
+1. If catalog shows Chemistry/Biology/Physics tracks, use rule:"one-of-sets" with separate sets
+2. Prefer non-honors tracks unless explicitly honors-focused program
+3. Mark lab courses as corequisites with their lecture counterparts
+4. Use Logic objects for complex prerequisites (e.g., {"op":"OR", "terms":["MATH 151", "MATH 161"]})
+5. Extract all requirement groups that govern course selection
+6. Only include courses that are actually required or part of selectable groups
 
-Return only valid JSON without any additional text or formatting.
+Return only valid JSON without additional text.
 `
 
     const completion = await openai.chat.completions.create({
@@ -92,7 +143,7 @@ Return only valid JSON without any additional text or formatting.
       ],
       response_format: { type: "json_object" },
       temperature: 0.1,
-      max_tokens: 4000,
+      max_tokens: 6000,
     })
 
     const responseContent = completion.choices[0]?.message?.content
@@ -108,6 +159,7 @@ Return only valid JSON without any additional text or formatting.
   } catch (error) {
     console.error("Error parsing requirements with AI:", error)
     if (error instanceof z.ZodError) {
+      console.error("Validation errors:", error.errors)
       throw new Error("Invalid response format from AI parser")
     }
     throw new Error("Failed to parse degree requirements")
